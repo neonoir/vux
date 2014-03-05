@@ -24,7 +24,7 @@ start(MaxX, MaxY, N) ->
     WMPubSubInfo = {Channel, WorldObjectQ, WorldManagerExchange},
 
     InitialStateList = world_object_spawn(WOPubSubInfo, StateList, {MaxX, MaxY}),
-    world_manager_loop(WMPubSubInfo, InitialStateList, [], N, N).
+    world_manager(WMPubSubInfo, InitialStateList, N).
 
 
 world_object_spawn(PubSubInfo, StateList, {MaxX, MaxY}) ->
