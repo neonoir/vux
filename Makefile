@@ -18,7 +18,7 @@ $(RABBIT)%:
 	unzip $@ -d $(DEPS_DIR)
 
 compile:
-	erl -make
+	erl -pa deps/*/ebin -make
 
 clean:
 	rm -rf *.beam ebin/*.beam erl_crash.dump
