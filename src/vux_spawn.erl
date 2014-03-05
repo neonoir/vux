@@ -7,17 +7,26 @@
 start(MaxX, MaxY, N) ->
     StateList = generate_state_list(MaxX, MaxY, N),
 
+    %% connecting to a broker
     {ok, Connection} = amqp_connection:start(#amqp_params_network{}),
+    %% creating a channel
     {ok, Channel} = amqp_connection:open_channel(Connection),
-    %% Declare a queue
+
+    %% create world manager exchange
+    WorldManagerExchange = #'exchange.declare'{exchange = <<"world_manager_exchange">>,
+                                               type = <<"fanout">>},
+    amqp_channel:call(Channel, WorldManagerExchange),
+    %% declare world manager queue
     #'queue.declare_ok'{queue = WorldManagerQ} =
         amqp_channel:call(Channel, #'queue.declare'{queue = <<"world_manager_queue">>}),
-    WorldManagerExchange = #'basic.publish'{exchange = <<"world_manager_exchange">>, routing_key = WorldManagerQ},
 
+    %% create world object exchange
+    WorldObjectExchange = #'exchange.declare'{exchange = <<"world_object_exchange">>,
+                                              type = <<"fanout">>},
+    amqp_channel:call(Channel, WorldObjectExchange),
+    %% declare world object queue
     #'queue.declare_ok'{queue = WorldObjectQ} =
         amqp_channel:call(Channel, #'queue.declare'{queue = <<"world_object_queue">>}),
-    WorldObjectExchange = #'basic.publish'{exchange = <<"world_object_exchange">>, routing_key = WorldObjectQ},
-
     %% amqp_channel:cast(Channel, Publish, #amqp_msg{payload = StateList}),
 
     WOPubSubInfo = {Channel, WorldManagerQ, WorldObjectExchange},
@@ -36,7 +45,8 @@ world_object_spawn(PubSubInfo, X, Y, {MaxX, MaxY}) ->
 
 
 world_manager({Channel, WorldObjectQ, WorldManagerExchange}, StateList, N) ->
-    amqp_channel:cast(Channel, WorldManagerExchange, #amqp_msg{payload = StateList}),
+    amqp_channel:cast(Channel, #'basic.publish'{exchange = WorldManagerExchange},
+                      #amqp_msg{payload = StateList}),
     Sub = #'basic.consume'{queue = WorldObjectQ},
     #'basic.consume_ok'{consumer_tag = _Tag} = amqp_channel:subscribe(Channel, Sub, self()),
     world_manager_loop(Channel, WorldManagerExchange, [], N, N).
