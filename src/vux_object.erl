@@ -1,6 +1,6 @@
 -module(vux_object).
+-compile(export_all).
 
--export([world_object_loop/7]).
 
 init({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, MaxX, MaxY) ->
     Sub = #'basic.consume'{queue = WorldManagerQ},

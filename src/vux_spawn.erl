@@ -1,7 +1,5 @@
 -module(vux_spawn).
-
--export([world_object_spawn/1]).
--export([world_object_spawn/2]).
+-compile(export_all).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 
