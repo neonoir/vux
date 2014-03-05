@@ -1,10 +1,11 @@
 -module(vux_object).
 -compile(export_all).
 
+-include_lib("amqp_client/include/amqp_client.hrl").
 
 init({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, MaxX, MaxY) ->
     Sub = #'basic.consume'{queue = WorldManagerQ},
-    #'basic.consume_ok'{consumer_tag = Tag} = amqp_channel:subscribe(Channel, Sub, self()),
+    #'basic.consume_ok'{consumer_tag = _Tag} = amqp_channel:subscribe(Channel, Sub, self()),
     world_object_loop({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, MaxX, MaxY).
 
 world_object_loop({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, MaxX, MaxY) ->
@@ -37,7 +38,7 @@ world_object_loop({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, Ma
 
 calculate_state(_, MaxX, MaxY, MaxX, MaxY) ->
     {MaxX, MaxY};
-calculate_state(StateList, X, Y, MaxX, MaxY) ->
+calculate_state(_StateList, X, Y, MaxX, MaxY) ->
     Xadd = crypto:rand_uniform(-1, 1),
     Yadd = crypto:rand_uniform(-1, 1),
     X1 = X + Xadd,

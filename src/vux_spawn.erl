@@ -7,7 +7,6 @@
 start(MaxX, MaxY, N) ->
     StateList = generate_state_list(MaxX, MaxY, N),
 
-
     {ok, Connection} = amqp_connection:start(#amqp_params_network{}),
     {ok, Channel} = amqp_connection:open_channel(Connection),
     %% Declare a queue
@@ -25,9 +24,7 @@ start(MaxX, MaxY, N) ->
     WMPubSubInfo = {Channel, WorldObjectQ, WorldManagerExchange},
 
     InitialStateList = world_object_spawn(WOPubSubInfo, StateList, {MaxX, MaxY}),
-    world_manager_loop( WMPubSubInfo, InitialStateList, N).
-
-
+    world_manager_loop(WMPubSubInfo, InitialStateList, [], N, N).
 
 
 world_object_spawn(PubSubInfo, StateList, {MaxX, MaxY}) ->
@@ -35,24 +32,20 @@ world_object_spawn(PubSubInfo, StateList, {MaxX, MaxY}) ->
 
 world_object_spawn(PubSubInfo, X, Y, {MaxX, MaxY}) ->
     Pid = spawn(vux_object, init, [PubSubInfo, X, Y, 0, MaxX, MaxY]),
-
     {Pid, X, Y, 0}.
-
-
 
 
 world_manager({Channel, WorldObjectQ, WorldManagerExchange}, StateList, N) ->
     amqp_channel:cast(Channel, WorldManagerExchange, #amqp_msg{payload = StateList}),
     Sub = #'basic.consume'{queue = WorldObjectQ},
-    #'basic.consume_ok'{consumer_tag = Tag} = amqp_channel:subscribe(Channel, Sub, self()),
+    #'basic.consume_ok'{consumer_tag = _Tag} = amqp_channel:subscribe(Channel, Sub, self()),
     world_manager_loop(Channel, WorldManagerExchange, [], N, N).
 
 world_manager_loop(Channel,  WorldManagerExchange, WorldObjectStateList,  N, 0) ->
     %% SAVE STATE TO DB
     io:format("~p~n", [WorldObjectStateList]),
     amqp_channel:cast(Channel, WorldManagerExchange, #amqp_msg{payload = WorldObjectStateList}),
-    world_manager_loop(Channel, WorldManagerExchange, [], N, N).
-
+    world_manager_loop(Channel, WorldManagerExchange, [], N, N);
 world_manager_loop(Channel,  WorldManagerExchange, WorldObjectStateList, N, Count) ->
     receive
         %% This is the first message received
@@ -71,7 +64,6 @@ world_manager_loop(Channel,  WorldManagerExchange, WorldObjectStateList, N, Coun
             %% Loop
             world_manager_loop(Channel, WorldManagerExchange, WorldObjectStateList2, N, Count-1)
     end.
-
 
 
 
