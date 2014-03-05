@@ -5,6 +5,7 @@
 
 
 start(MaxX, MaxY, N) ->
+    %% initialize state of the universe
     StateList = generate_state_list(MaxX, MaxY, N),
 
     %% connecting to a broker
@@ -13,27 +14,24 @@ start(MaxX, MaxY, N) ->
     {ok, Channel} = amqp_connection:open_channel(Connection),
 
     %% create world manager exchange
-    WorldManagerExchange = #'exchange.declare'{exchange = <<"world_manager_exchange">>,
-                                               type = <<"fanout">>},
-    amqp_channel:call(Channel, WorldManagerExchange),
+    WorldManagerExchange = <<"world_manager_exchange">>,
+    amqp_channel:call(Channel, #'exchange.declare'{exchange = WorldManagerExchange}),
     %% declare world manager queue
     #'queue.declare_ok'{queue = WorldManagerQ} =
         amqp_channel:call(Channel, #'queue.declare'{queue = <<"world_manager_queue">>}),
 
     %% create world object exchange
-    WorldObjectExchange = #'exchange.declare'{exchange = <<"world_object_exchange">>,
-                                              type = <<"fanout">>},
-    amqp_channel:call(Channel, WorldObjectExchange),
+    WorldObjectExchange = <<"world_object_exchange">>,
+    amqp_channel:call(Channel, #'exchange.declare'{exchange = WorldObjectExchange}),
     %% declare world object queue
     #'queue.declare_ok'{queue = WorldObjectQ} =
         amqp_channel:call(Channel, #'queue.declare'{queue = <<"world_object_queue">>}),
-    %% amqp_channel:cast(Channel, Publish, #amqp_msg{payload = StateList}),
 
     WOPubSubInfo = {Channel, WorldManagerQ, WorldObjectExchange},
     WMPubSubInfo = {Channel, WorldObjectQ, WorldManagerExchange},
 
-    InitialStateList = world_object_spawn(WOPubSubInfo, StateList, {MaxX, MaxY}),
-    world_manager(WMPubSubInfo, InitialStateList, N).
+    %% InitialStateList = world_object_spawn(WOPubSubInfo, StateList, {MaxX, MaxY}),
+    world_manager(WMPubSubInfo, <<"InitialStateList">>, N).
 
 
 world_object_spawn(PubSubInfo, StateList, {MaxX, MaxY}) ->
@@ -45,13 +43,18 @@ world_object_spawn(PubSubInfo, X, Y, {MaxX, MaxY}) ->
 
 
 world_manager({Channel, WorldObjectQ, WorldManagerExchange}, StateList, N) ->
-    amqp_channel:cast(Channel, #'basic.publish'{exchange = WorldManagerExchange},
+    %% send the initial state of the universe
+    %% looks like we cannot send a list of elements
+    amqp_channel:cast(Channel,
+                      #'basic.publish'{exchange = WorldManagerExchange,
+                                       routing_key = WorldObjectQ},
                       #amqp_msg{payload = StateList}),
-    Sub = #'basic.consume'{queue = WorldObjectQ},
+
+    Sub = #'basic.consume'{queue = WorldObjectQ, no_ack = true},
     #'basic.consume_ok'{consumer_tag = _Tag} = amqp_channel:subscribe(Channel, Sub, self()),
     world_manager_loop(Channel, WorldManagerExchange, [], N, N).
 
-world_manager_loop(Channel,  WorldManagerExchange, WorldObjectStateList,  N, 0) ->
+world_manager_loop(Channel, WorldManagerExchange, WorldObjectStateList,  N, 0) ->
     %% SAVE STATE TO DB
     io:format("~p~n", [WorldObjectStateList]),
     amqp_channel:cast(Channel, WorldManagerExchange, #amqp_msg{payload = WorldObjectStateList}),
