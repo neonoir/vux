@@ -6,26 +6,32 @@
 init({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, MaxX, MaxY) ->
     Sub = #'basic.consume'{queue = WorldManagerQ},
     #'basic.consume_ok'{consumer_tag = _Tag} = amqp_channel:subscribe(Channel, Sub, self()),
+    receive
+        #'basic.consume_ok'{} -> ok
+    end,
     world_object_loop({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, MaxX, MaxY).
 
 world_object_loop({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, MaxX, MaxY) ->
     receive
-        %% This is the first message received
-        #'basic.consume_ok'{} ->
-            world_object_loop({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, MaxX, MaxY);
-        %% This is received when the subscription is cancelled
-        #'basic.cancel_ok'{} ->
-            cancel_ok;
         %% A delivery
-        {#'basic.deliver'{delivery_tag = Tag}, WorldStateList } ->
-            {X1, Y1} = calculate_state(WorldStateList, X, Y, MaxX, MaxY),
-            amqp_channel:cast(Channel, WorldObjectExchange, #amqp_msg{payload = {self(), X1, Y1, Cycle+1}}),
-
+        {#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = WorldStateListP}} ->
             %% Ack the message
             amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = Tag}),
 
+            WorldStateList = binary_to_term(WorldStateListP),
+            {X1, Y1} = calculate_state(WorldStateList, X, Y, MaxX, MaxY),
+            Publish = #'basic.publish'{exchange = WorldObjectExchange,
+                                       routing_key = <<"#">>},
+            Payload = term_to_binary({self(), X1, Y1, Cycle+1}),
+            amqp_channel:cast(Channel, Publish, #amqp_msg{payload = Payload}),
+
             %% Loop
-            world_object_loop({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle+1, MaxX, MaxY)
+            world_object_loop({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle+1, MaxX, MaxY);
+        %% This is received when the subscription is cancelled
+        #'basic.cancel_ok'{} ->
+            cancel_ok;
+        _ ->
+            world_object_loop({Channel, WorldManagerQ, WorldObjectExchange}, X, Y, Cycle, MaxX, MaxY)
     end.
     %% receive
     %%     {SubChannel, StateList} ->

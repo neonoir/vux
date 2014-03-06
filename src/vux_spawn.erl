@@ -15,7 +15,8 @@ start(MaxX, MaxY, N) ->
 
     %% create world manager exchange
     WorldManagerExchange = <<"world_manager_exchange">>,
-    amqp_channel:call(Channel, #'exchange.declare'{exchange = WorldManagerExchange}),
+    amqp_channel:call(Channel, #'exchange.declare'{exchange = WorldManagerExchange,
+                                                   type = <<"fanout">>}),
     %% declare world manager queue
     #'queue.declare_ok'{queue = WorldManagerQ} =
         amqp_channel:call(Channel, #'queue.declare'{queue = <<"world_manager_queue">>}),
@@ -27,11 +28,19 @@ start(MaxX, MaxY, N) ->
     #'queue.declare_ok'{queue = WorldObjectQ} =
         amqp_channel:call(Channel, #'queue.declare'{queue = <<"world_object_queue">>}),
 
+    amqp_channel:call(Channel, #'queue.bind'{exchange = WorldManagerExchange,
+                                             queue = WorldManagerQ,
+                                             routing_key = <<"#">>}),
+
+    amqp_channel:call(Channel, #'queue.bind'{exchange = WorldObjectExchange,
+                                             queue = WorldObjectQ,
+                                             routing_key = <<"#">>}),
+
     WOPubSubInfo = {Channel, WorldManagerQ, WorldObjectExchange},
     WMPubSubInfo = {Channel, WorldObjectQ, WorldManagerExchange},
 
-    %% InitialStateList = world_object_spawn(WOPubSubInfo, StateList, {MaxX, MaxY}),
-    world_manager(WMPubSubInfo, <<"InitialStateList">>, N).
+    InitialStateList = world_object_spawn(WOPubSubInfo, StateList, {MaxX, MaxY}),
+    spawn(fun () -> world_manager(WMPubSubInfo, term_to_binary(InitialStateList), N) end).
 
 
 world_object_spawn(PubSubInfo, StateList, {MaxX, MaxY}) ->
@@ -44,38 +53,43 @@ world_object_spawn(PubSubInfo, X, Y, {MaxX, MaxY}) ->
 
 world_manager({Channel, WorldObjectQ, WorldManagerExchange}, StateList, N) ->
     %% send the initial state of the universe
-    %% looks like we cannot send a list of elements
-    amqp_channel:cast(Channel,
-                      #'basic.publish'{exchange = WorldManagerExchange,
-                                       routing_key = WorldObjectQ},
-                      #amqp_msg{payload = StateList}),
+    Publish = #'basic.publish'{exchange = WorldManagerExchange,
+                               routing_key = <<"#">>},
+    amqp_channel:cast(Channel, Publish, #amqp_msg{payload = StateList}),
 
-    Sub = #'basic.consume'{queue = WorldObjectQ, no_ack = true},
+    Sub = #'basic.consume'{queue = WorldObjectQ},
     #'basic.consume_ok'{consumer_tag = _Tag} = amqp_channel:subscribe(Channel, Sub, self()),
+    receive
+        #'basic.consume_ok'{} -> ok
+    end,
     world_manager_loop(Channel, WorldManagerExchange, [], N, N).
 
 world_manager_loop(Channel, WorldManagerExchange, WorldObjectStateList,  N, 0) ->
     %% SAVE STATE TO DB
-    io:format("~p~n", [WorldObjectStateList]),
-    amqp_channel:cast(Channel, WorldManagerExchange, #amqp_msg{payload = WorldObjectStateList}),
+    io:format("world state: ~p~n", [WorldObjectStateList]),
+    Publish = #'basic.publish'{exchange = WorldManagerExchange,
+                               routing_key = <<"#">>},
+    amqp_channel:cast(Channel, Publish,
+                      #amqp_msg{payload = term_to_binary(WorldObjectStateList)}),
     world_manager_loop(Channel, WorldManagerExchange, [], N, N);
 world_manager_loop(Channel,  WorldManagerExchange, WorldObjectStateList, N, Count) ->
     receive
-        %% This is the first message received
-        #'basic.consume_ok'{} ->
-            world_manager_loop(Channel, WorldManagerExchange, WorldObjectStateList, N, Count);
-        %% This is received when the subscription is cancelled
-        #'basic.cancel_ok'{} ->
-            cancel_ok;
         %% A delivery
-        {#'basic.deliver'{delivery_tag = Tag}, WorldObjectState } ->
-            WorldObjectStateList2 = [WorldObjectState | WorldObjectStateList],
+        {#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = WorldObjectState}} ->
+            io:format("manager...~n"),
 
             %% Ack the message
             amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = Tag}),
 
+            WorldObjectStateList2 = [binary_to_term(WorldObjectState) | WorldObjectStateList],
+
             %% Loop
-            world_manager_loop(Channel, WorldManagerExchange, WorldObjectStateList2, N, Count-1)
+            world_manager_loop(Channel, WorldManagerExchange, WorldObjectStateList2, N, Count-1);
+        %% This is received when the subscription is cancelled
+        #'basic.cancel_ok'{} ->
+            cancel_ok;
+        _ ->
+            world_manager_loop(Channel, WorldManagerExchange, WorldObjectStateList, N, Count)
     end.
 
 
