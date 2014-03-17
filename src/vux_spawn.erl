@@ -104,3 +104,18 @@ generate_state_list(MaxX, MaxY, N, Acc) ->
     X = crypto:rand_uniform(-MaxX, MaxX),
     Y = crypto:rand_uniform(-MaxY, MaxY),
     generate_state_list(MaxX, MaxY, N - 1, [{X, Y}|Acc]).
+
+get_channel(Host) ->
+    {ok, Connection} =
+        amqp_connection:start(#amqp_params_network{host = "localhost"}),
+    {ok, Channel} = amqp_connection:open_channel(Connection),
+    Channel.
+
+exchange_declare(Channel, Type, Exchange) ->
+    amqp_channel:call(Channel, #'exchange.declare'{exchange = <<"logs">>, type = <<"fanout">>}).
+
+queue_declare(Channel, Type, Exchange) ->
+    #'queue.declare_ok'{queue = Queue} = amqp_channel:call(Channel, #'queue.declare'{exclusive = true}),
+    amqp_channel:call(Channel, #'queue.bind'{exchange = <<"logs">>, queue = Queue}).
+
+
