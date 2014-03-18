@@ -9,14 +9,16 @@ start(MaxX, MaxY, N) ->
     StateList = generate_state_list(MaxX, MaxY, N),
 
     %% connecting to a broker
-    {ok, Connection} = amqp_connection:start(#amqp_params_network{}),
+    % {ok, Connection} = amqp_connection:start(#amqp_params_network{}), 
     %% creating a channel
-    {ok, Channel} = amqp_connection:open_channel(Connection),
+    % {ok, Channel} = amqp_connection:open_channel(Connection),
+    Channel = get_channel("localhost"),
 
     %% create world manager exchange
-    WorldManagerExchange = <<"world_manager_exchange">>,
-    amqp_channel:call(Channel, #'exchange.declare'{exchange = WorldManagerExchange,
-                                                   type = <<"fanout">>}),
+    WorldManagerExchange = exchange_declare_fanout(Channel, <<"world_manager_exchange">>),
+    % WorldManagerExchange =<<"world_manager_exchange">>,
+    % amqp_channel:call(Channel, #'exchange.declare'{exchange = WorldManagerExchange,
+    %                                                type = <<"fanout">>}),
     %% declare world manager queue
     #'queue.declare_ok'{queue = WorldManagerQ} =
         amqp_channel:call(Channel, #'queue.declare'{queue = <<"world_manager_queue">>}),
@@ -106,10 +108,17 @@ generate_state_list(MaxX, MaxY, N, Acc) ->
     generate_state_list(MaxX, MaxY, N - 1, [{X, Y}|Acc]).
 
 get_channel(Host) ->
-    {ok, Connection} =
-        amqp_connection:start(#amqp_params_network{host = "localhost"}),
-    {ok, Channel} = amqp_connection:open_channel(Connection),
-    Channel.
+    case amqp_connection:start(#amqp_params_network{host = Host}) of
+	{ok, Connection} ->
+	    case amqp_connection:open_channel(Connection) of
+		{ok, Channel} ->
+		    Channel;
+		_ ->
+		    channel_error
+	    end;
+	_ ->
+	    connection_error
+    end.
 
 exchange_declare_fanout(Channel, Exchange) ->
     amqp_channel:call(Channel, #'exchange.declare'{exchange = Exchange, type = <<"fanout">>}).
