@@ -127,5 +127,3 @@ queue_declare(Channel, Queue, Exchange) ->
     #'queue.declare_ok'{queue = Queue} = amqp_channel:call(Channel, #'queue.declare'{exclusive = true}),
     amqp_channel:call(Channel, #'queue.bind'{exchange =  Exchange, queue = Queue}),
     Queue.
-
-
