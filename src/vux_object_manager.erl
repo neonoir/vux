@@ -4,39 +4,36 @@
 -include_lib("amqp_client/include/amqp_client.hrl").
 
 
-world_manager({Channel, WorldObjectQ, WorldManagerExchange}, StateList, N) ->
+init({Channel, WorldManagerExchange, WorldObjectExchange}, StateList, N) ->
+    %% create world manager exchange
+    vux_rmq_utils:exchange_declare(Channel, WorldManagerExchange, <<"fanout">>),
 
-    %% broadcast the initial state of the universe
-    amqp_channel:cast(Channel, 
-		      #'basic.publish'{exchange = WorldManagerExchange}, 
-		      #amqp_msg{payload = term_to_binary(StateList)}),
+    vux_rmq_utils:exchange_declare(Channel, WorldObjectExchange, <<"fanout">>),
+    WorldObjectQ = vux_rmq_utils:queue_declare(Channel),
+    vux_rmq_utils:queue_bind(Channel, WorldObjectExchange, WorldObjectQ),
+    %% broadcast the initial state of the universe\
+    vux_rmq_utils:publish(Channel, WorldManagerExchange, StateList),
 
     %% subscribe to the state of the world
-    Sub = #'basic.consume'{queue = WorldObjectQ},
-    #'basic.consume_ok'{consumer_tag = _Tag} = amqp_channel:subscribe(Channel, Sub, self()),
-    receive
-        #'basic.consume_ok'{} -> ok
-    end,
+    vux_rmq_utils:subscribe(Channel, WorldObjectQ),
+
+    %% initialize the main loop
     world_manager_loop(Channel, WorldManagerExchange, [], N, N).
 
 world_manager_loop(Channel, WorldManagerExchange, WorldObjectStateList,  N, 0) ->
     %% TODO: SAVE STATE TO DB
-    io:format("world state: ~p~n", [WorldObjectStateList]),
-
     %% broadcast the current state of the universe
-    amqp_channel:cast(Channel, 
-		      #'basic.publish'{exchange = WorldManagerExchange},
-                      #amqp_msg{payload = term_to_binary(WorldObjectStateList)}),
+    vux_rmq_utils:publish(Channel, WorldManagerExchange, WorldObjectStateList),
     world_manager_loop(Channel, WorldManagerExchange, [], N, N);
 world_manager_loop(Channel,  WorldManagerExchange, WorldObjectStateList, N, Count) ->
     receive
         %% A delivery
         {#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{payload = WorldObjectState}} ->
-	    {Pid , _, _, Cycle} = binary_to_term(WorldObjectState),
-            io:format("pid : ~p , cycle : ~p ~n", [Pid, Cycle]),
+	    %% {Pid , _, _, Cycle} = binary_to_term(WorldObjectState),
+            %% io:format("pid : ~p , cycle : ~p ~n", [Pid, Cycle]),
 
             %% Ack the message
-            amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = Tag}),
+            vux_rmq_utils:ack(Channel, Tag),
 
             WorldObjectStateList2 = [WorldObjectState | WorldObjectStateList],
 
@@ -48,4 +45,3 @@ world_manager_loop(Channel,  WorldManagerExchange, WorldObjectStateList, N, Coun
         _ ->
             world_manager_loop(Channel, WorldManagerExchange, WorldObjectStateList, N, Count)
     end.
-

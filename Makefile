@@ -27,4 +27,4 @@ distclean: clean
 	rm -rf $(DEPS_DIR)
 
 shell:
-	erl -pa ebin deps/*/ebin
+	erl -pa ebin deps/*/ebin -s reloader start
